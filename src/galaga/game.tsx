@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { render, useInput, Text, Box } from 'ink';
-import { GameMode, Enemy, Bullet, PowerUpItem, PowerUpType, Entity } from './types.js';
+import { GameMode, Enemy, Bullet, PowerUpItem, PowerUpType, Particle } from './types.js';
 import { PLAYER_SPRITE, ENEMY_SPRITES } from './sprites.js';
 
 const FIELD_W = 48;
@@ -16,18 +16,18 @@ const createInitialEnemies = (): Enemy[] => {
   const enemies: Enemy[] = [];
   let id = 1;
 
-  // Row 1: Bosses (Yellow)
-  for (let x = 10; x <= 34; x += 8) {
+  // Row 1: 4 Bosses (5x2 each)
+  for (let x = 6; x <= 33; x += 9) {
     enemies.push({ id: id++, x, y: 1, type: 'boss', hp: 2 });
   }
 
-  // Row 2: Butterflies (Red)
-  for (let x = 6; x <= 38; x += 6) {
+  // Row 2: 5 Butterflies (5x2 each)
+  for (let x = 5; x <= 37; x += 8) {
     enemies.push({ id: id++, x, y: 4, type: 'butterfly', hp: 1 });
   }
 
-  // Row 3: Minions (Blue)
-  for (let x = 6; x <= 38; x += 6) {
+  // Row 3: 5 Minions (5x2 each)
+  for (let x = 5; x <= 37; x += 8) {
     enemies.push({ id: id++, x, y: 7, type: 'minion', hp: 1 });
   }
 
@@ -43,6 +43,7 @@ export const Galaga = () => {
   const [enemies, setEnemies] = useState<Enemy[]>(createInitialEnemies);
   const [enemyDir, setEnemyDir] = useState<number>(1);
   const [powerUps, setPowerUps] = useState<PowerUpItem[]>([]);
+  const [particles, setParticles] = useState<Particle[]>([]);
   const [score, setScore] = useState<number>(0);
 
   // Power-up states
@@ -54,7 +55,37 @@ export const Galaga = () => {
 
   const nextBulletId = useRef(1);
   const nextPowerUpId = useRef(1);
+  const nextParticleId = useRef(1);
   const isInteractive = Boolean(process.stdin.isTTY);
+
+  // Particle explosion helper
+  const spawnExplosion = useCallback(
+    (originX: number, originY: number, count: number, colors: string[], intensity = 1) => {
+      const glyphs = ['*', '•', '·', '+', 'x', '¤', '■'];
+      const newParticles: Particle[] = [];
+
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
+        const speed = (0.5 + Math.random() * 1.2) * intensity;
+        const life = 5 + Math.floor(Math.random() * 5);
+
+        newParticles.push({
+          id: nextParticleId.current++,
+          x: originX,
+          y: originY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * (speed * 0.7), // aspect ratio correction for terminals
+          char: glyphs[Math.floor(Math.random() * glyphs.length)],
+          color: colors[Math.floor(Math.random() * colors.length)],
+          life,
+          maxLife: life
+        });
+      }
+
+      setParticles(prev => [...prev, ...newParticles]);
+    },
+    []
+  );
 
   const startNewGame = (newMode: GameMode = 'playing') => {
     setMode(newMode);
@@ -63,6 +94,7 @@ export const Galaga = () => {
     setEnemies(createInitialEnemies());
     setEnemyDir(1);
     setPowerUps([]);
+    setParticles([]);
     setShieldActive(false);
     setMultishotExpiry(0);
     setRapidfireExpiry(0);
@@ -79,7 +111,7 @@ export const Galaga = () => {
       if (prev.length >= maxBullets) return prev;
 
       const newBullets: Bullet[] = [];
-      const midX = currPlayerX + 1;
+      const midX = currPlayerX + 2; // center of 5-wide ship
 
       if (isMultishotActive) {
         newBullets.push(
@@ -102,13 +134,11 @@ export const Galaga = () => {
         process.exit(0);
       }
 
-      // 'N' or 'n' starts a new human game at any time
       if (input === 'n' || input === 'N') {
         startNewGame('playing');
         return;
       }
 
-      // When in demo mode, ignore movement/shooting (controlled by AI)
       if (mode === 'demo') {
         return;
       }
@@ -135,51 +165,72 @@ export const Galaga = () => {
     if (mode !== 'demo') return;
 
     const demoInterval = setInterval(() => {
-      // Find lowest enemy
       if (enemies.length === 0) {
-        // Respawn for endless demo attract mode
         setEnemies(createInitialEnemies());
         return;
       }
 
       const targetEnemy = enemies.reduce((lowest, curr) => (curr.y > lowest.y ? curr : lowest), enemies[0]);
-      const targetX = targetEnemy ? targetEnemy.x : Math.floor(FIELD_W / 2);
+      const targetCenter = targetEnemy ? targetEnemy.x + 2 : Math.floor(FIELD_W / 2);
+      const playerCenter = playerX + 2;
 
       setPlayerX(currX => {
         let nextX = currX;
-        if (targetX > currX + 1) {
+        if (targetCenter > playerCenter + 1) {
           nextX = Math.min(FIELD_W - PLAYER_SPRITE.width - 1, currX + 1);
-        } else if (targetX < currX - 1) {
+        } else if (targetCenter < playerCenter - 1) {
           nextX = Math.max(1, currX - 1);
         }
 
-        // Random or targeted shooting
-        if (Math.abs(targetX - currX) <= 2 || Math.random() < 0.25) {
+        if (Math.abs(targetCenter - (nextX + 2)) <= 2 || Math.random() < 0.25) {
           firePlayerBullets(nextX);
         }
 
         return nextX;
       });
-    }, 150);
+    }, 140);
 
     return () => clearInterval(demoInterval);
-  }, [mode, enemies, isMultishotActive, isRapidfireActive]);
+  }, [mode, enemies, playerX, isMultishotActive, isRapidfireActive]);
 
-  // Main Bullet movement & Collision Loop
+  // Particle update loop
+  useEffect(() => {
+    if (particles.length === 0) return;
+
+    const interval = setInterval(() => {
+      setParticles(prev =>
+        prev
+          .map(p => ({
+            ...p,
+            x: p.x + p.vx,
+            y: p.y + p.vy,
+            life: p.life - 1
+          }))
+          .filter(
+            p =>
+              p.life > 0 &&
+              p.x >= 0 &&
+              p.x < FIELD_W &&
+              p.y >= 0 &&
+              p.y < FIELD_H
+          )
+      );
+    }, 60);
+
+    return () => clearInterval(interval);
+  }, [particles.length]);
+
+  // Bullets & Collision Loop
   useEffect(() => {
     if (mode === 'gameover' || mode === 'victory') return;
 
     const bulletSpeed = isRapidfireActive ? 60 : 80;
     const interval = setInterval(() => {
-      const now = Date.now();
-
-      // 1. Advance bullets
       setBullets(prevBullets => {
         const nextBullets = prevBullets
           .map(b => ({ ...b, y: b.y - 1 }))
           .filter(b => b.y >= 0);
 
-        // 2. Check collision with enemies
         setEnemies(prevEnemies => {
           const survivingEnemies: Enemy[] = [];
           const droppedPowerUps: PowerUpItem[] = [];
@@ -187,7 +238,6 @@ export const Galaga = () => {
 
           for (const enemy of prevEnemies) {
             const sprite = ENEMY_SPRITES[enemy.type];
-            // Check if any bullet hit this enemy's bounding box
             const hitIndex = nextBullets.findIndex(
               b =>
                 b.x >= enemy.x &&
@@ -197,14 +247,25 @@ export const Galaga = () => {
             );
 
             if (hitIndex !== -1) {
-              nextBullets.splice(hitIndex, 1);
+              const hitBullet = nextBullets.splice(hitIndex, 1)[0];
               const remainingHp = enemy.hp - 1;
 
               if (remainingHp <= 0) {
                 const pts = enemy.type === 'boss' ? 200 : enemy.type === 'butterfly' ? 100 : 50;
                 addedScore += pts;
 
-                // Chance of power-up drop (35%)
+                // Spawn explosion particles for destroyed enemy
+                spawnExplosion(
+                  enemy.x + 2,
+                  enemy.y + 1,
+                  8,
+                  enemy.type === 'boss'
+                    ? ['yellowBright', 'greenBright', 'whiteBright', 'redBright']
+                    : enemy.type === 'butterfly'
+                    ? ['redBright', 'whiteBright', 'yellowBright']
+                    : ['blueBright', 'cyanBright', 'whiteBright']
+                );
+
                 if (Math.random() < 0.4) {
                   const roll = Math.random();
                   let pType: PowerUpType = 'multishot';
@@ -223,7 +284,7 @@ export const Galaga = () => {
 
                   droppedPowerUps.push({
                     id: nextPowerUpId.current++,
-                    x: Math.min(FIELD_W - 3, Math.max(1, enemy.x)),
+                    x: Math.min(FIELD_W - 3, Math.max(1, enemy.x + 1)),
                     y: enemy.y + 1,
                     type: pType,
                     symbol,
@@ -231,6 +292,8 @@ export const Galaga = () => {
                   });
                 }
               } else {
+                // Small hit spark
+                spawnExplosion(hitBullet.x, hitBullet.y, 3, ['whiteBright', 'yellowBright'], 0.5);
                 survivingEnemies.push({ ...enemy, hp: remainingHp });
               }
             } else {
@@ -262,7 +325,7 @@ export const Galaga = () => {
     }, bulletSpeed);
 
     return () => clearInterval(interval);
-  }, [mode, isRapidfireActive]);
+  }, [mode, isRapidfireActive, spawnExplosion]);
 
   // Power-up falling & collection loop
   useEffect(() => {
@@ -275,7 +338,6 @@ export const Galaga = () => {
         for (const item of prev) {
           const nextY = item.y + 1;
 
-          // Check collision with player bounding box (x to x+2, playerY to playerY+1)
           const touchesPlayer =
             nextY >= playerY - 1 &&
             nextY <= playerY + PLAYER_SPRITE.height &&
@@ -283,16 +345,18 @@ export const Galaga = () => {
             item.x <= playerX + PLAYER_SPRITE.width;
 
           if (touchesPlayer) {
-            // Apply powerup
             if (item.type === 'shield') {
               setShieldActive(true);
               setActiveMessage('¡ESCUDO ACTIVADO!');
+              spawnExplosion(playerX + 2, playerY, 10, ['blueBright', 'cyanBright']);
             } else if (item.type === 'multishot') {
               setMultishotExpiry(Date.now() + 10000);
               setActiveMessage('¡DISPARO MULTIPLE (10s)!');
+              spawnExplosion(playerX + 2, playerY, 10, ['greenBright', 'whiteBright']);
             } else if (item.type === 'rapidfire') {
               setRapidfireExpiry(Date.now() + 8000);
               setActiveMessage('¡FUEGO RAPIDO (8s)!');
+              spawnExplosion(playerX + 2, playerY, 10, ['yellowBright', 'whiteBright']);
             }
             setScore(s => s + 50);
           } else if (nextY < FIELD_H) {
@@ -305,7 +369,7 @@ export const Galaga = () => {
     }, 200);
 
     return () => clearInterval(interval);
-  }, [mode, playerX, playerY]);
+  }, [mode, playerX, playerY, spawnExplosion]);
 
   // Enemy movement loop
   useEffect(() => {
@@ -339,7 +403,6 @@ export const Galaga = () => {
           y: shouldDrop ? e.y + 1 : e.y
         }));
 
-        // Check if any enemy reached player height
         const breached = updated.some(
           e => e.y + ENEMY_SPRITES[e.type].height >= playerY
         );
@@ -348,9 +411,11 @@ export const Galaga = () => {
           if (shieldActive) {
             setShieldActive(false);
             setActiveMessage('¡ESCUDO ABSORBIO EL IMPACTO!');
+            spawnExplosion(playerX + 2, playerY - 1, 14, ['cyanBright', 'whiteBright']);
           } else {
+            // Massive player explosion!
+            spawnExplosion(playerX + 2, playerY, 24, ['yellowBright', 'redBright', 'whiteBright', 'cyanBright'], 1.8);
             if (mode === 'demo') {
-              // Auto reset demo wave
               return createInitialEnemies();
             } else {
               setMode('gameover');
@@ -363,10 +428,9 @@ export const Galaga = () => {
     }, 400);
 
     return () => clearInterval(interval);
-  }, [mode, enemyDir, playerY, shieldActive]);
+  }, [mode, enemyDir, playerX, playerY, shieldActive, spawnExplosion]);
 
-  // Construct Visual Grid Buffer
-  // We'll create a 2D array of { char: string, color?: string, bold?: boolean }
+  // Grid buffer construction
   interface Cell {
     char: string;
     color?: string;
@@ -377,7 +441,7 @@ export const Galaga = () => {
     Array.from({ length: FIELD_W }, () => ({ char: ' ' }))
   );
 
-  // 1. Draw Enemies (Pixel Art Sprites)
+  // 1. Draw Enemies (Multi-color Pixel Art)
   for (const enemy of enemies) {
     const sprite = ENEMY_SPRITES[enemy.type];
     for (let r = 0; r < sprite.height; r++) {
@@ -389,7 +453,8 @@ export const Galaga = () => {
           if (gx >= 0 && gx < FIELD_W) {
             const ch = line[c];
             if (ch !== ' ') {
-              grid[gy][gx] = { char: ch, color: sprite.color, bold: true };
+              const color = sprite.colors ? sprite.colors[r][c] : sprite.color;
+              grid[gy][gx] = { char: ch, color, bold: true };
             }
           }
         }
@@ -416,37 +481,49 @@ export const Galaga = () => {
     }
   }
 
-  // 4. Draw Player Ship (Pixel Art)
-  for (let r = 0; r < PLAYER_SPRITE.height; r++) {
-    const line = PLAYER_SPRITE.lines[r];
-    const gy = playerY + r;
-    if (gy >= 0 && gy < FIELD_H) {
-      for (let c = 0; c < PLAYER_SPRITE.width; c++) {
-        const gx = playerX + c;
-        if (gx >= 0 && gx < FIELD_W) {
-          const ch = line[c];
-          if (ch !== ' ') {
-            grid[gy][gx] = { char: ch, color: PLAYER_SPRITE.color, bold: true };
+  // 4. Draw Particles (Explosions & Sparks)
+  for (const p of particles) {
+    const px = Math.round(p.x);
+    const py = Math.round(p.y);
+    if (py >= 0 && py < FIELD_H && px >= 0 && px < FIELD_W) {
+      grid[py][px] = { char: p.char, color: p.color, bold: true };
+    }
+  }
+
+  // 5. Draw Player Ship (Multi-color Pixel Art v2)
+  if (mode !== 'gameover' || particles.length > 0) {
+    for (let r = 0; r < PLAYER_SPRITE.height; r++) {
+      const line = PLAYER_SPRITE.lines[r];
+      const gy = playerY + r;
+      if (gy >= 0 && gy < FIELD_H) {
+        for (let c = 0; c < PLAYER_SPRITE.width; c++) {
+          const gx = playerX + c;
+          if (gx >= 0 && gx < FIELD_W) {
+            const ch = line[c];
+            if (ch !== ' ') {
+              const color = PLAYER_SPRITE.colors ? PLAYER_SPRITE.colors[r][c] : PLAYER_SPRITE.color;
+              grid[gy][gx] = { char: ch, color, bold: true };
+            }
           }
         }
       }
     }
   }
 
-  // 5. Draw Shield Barrier if active
+  // 6. Draw Shield Barrier if active
   if (shieldActive) {
     const shieldY = playerY - 1;
     if (shieldY >= 0) {
       for (let c = -1; c <= PLAYER_SPRITE.width; c++) {
         const gx = playerX + c;
         if (gx >= 0 && gx < FIELD_W) {
-          grid[shieldY][gx] = { char: '═', color: 'cyan', bold: true };
+          grid[shieldY][gx] = { char: '═', color: 'cyanBright', bold: true };
         }
       }
     }
   }
 
-  // Convert grid to row segments for Ink
+  // Convert grid to row segments
   const renderRow = (rowCells: Cell[], rowIndex: number) => {
     const segments: Segment[] = [];
     let currentText = '';
