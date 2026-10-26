@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { render, useInput, Text, Box } from 'ink';
 import { GameMode, Enemy, Bullet, PowerUpItem, PowerUpType, Particle } from './types.js';
 import { PLAYER_PIXEL_SPRITE, ENEMY_PIXEL_SPRITES } from './sprites.js';
+import { audio } from './audio/player.js';
 
 const CANVAS_W = 50;
-const CANVAS_H = 56; // Expanded vertical height (28 terminal lines)
+const CANVAS_H = 56;
 const TERM_ROWS = CANVAS_H / 2;
 
 interface Segment {
@@ -52,12 +53,25 @@ export const Galaga = () => {
   const [multishotExpiry, setMultishotExpiry] = useState<number>(0);
   const [rapidfireExpiry, setRapidfireExpiry] = useState<number>(0);
 
+  // Audio mute state
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+
   const [activeMessage, setActiveMessage] = useState<string>('');
 
   const nextBulletId = useRef(1);
   const nextPowerUpId = useRef(1);
   const nextParticleId = useRef(1);
   const isInteractive = Boolean(process.stdin.isTTY);
+
+  // Start background music loop
+  useEffect(() => {
+    if (!isMuted && audio.isAvailable()) {
+      audio.startMusic();
+    }
+    return () => {
+      audio.stopMusic();
+    };
+  }, [isMuted]);
 
   // Particle explosion helper in 1:1 half-block pixel space
   const spawnExplosion = useCallback(
@@ -109,6 +123,10 @@ export const Galaga = () => {
     setBullets(prev => {
       if (prev.length >= maxBullets) return prev;
 
+      if (!isMuted) {
+        audio.play('laser');
+      }
+
       const newBullets: Bullet[] = [];
       const midX = currPlayerX + 3;
 
@@ -130,11 +148,27 @@ export const Galaga = () => {
   useInput(
     (input, key) => {
       if (input === 'q' || input === 'Q') {
+        audio.stopMusic();
         process.exit(0);
       }
 
       if (input === 'n' || input === 'N') {
         startNewGame('playing');
+        return;
+      }
+
+      // Audio mute toggle with 'M' / 'm'
+      if (input === 'm' || input === 'M') {
+        setIsMuted(prev => {
+          const next = !prev;
+          if (next) {
+            audio.stopMusic();
+            setActiveMessage('AUDIO SILENCIADO');
+          } else {
+            setActiveMessage('AUDIO ACTIVADO');
+          }
+          return next;
+        });
         return;
       }
 
@@ -190,7 +224,7 @@ export const Galaga = () => {
     }, 120);
 
     return () => clearInterval(demoInterval);
-  }, [mode, enemies, playerX, isMultishotActive, isRapidfireActive]);
+  }, [mode, enemies, playerX, isMultishotActive, isRapidfireActive, isMuted]);
 
   // Particle update loop
   useEffect(() => {
@@ -219,7 +253,7 @@ export const Galaga = () => {
     return () => clearInterval(interval);
   }, [particles.length]);
 
-  // Bullets & Collision Loop (faster bullet velocity across taller field)
+  // Bullets & Collision Loop
   useEffect(() => {
     if (mode === 'gameover' || mode === 'victory') return;
 
@@ -252,6 +286,10 @@ export const Galaga = () => {
               if (remainingHp <= 0) {
                 const pts = enemy.type === 'boss' ? 200 : enemy.type === 'butterfly' ? 100 : 50;
                 addedScore += pts;
+
+                if (!isMuted) {
+                  audio.play('explosion');
+                }
 
                 spawnExplosion(
                   enemy.x + 3,
@@ -322,7 +360,7 @@ export const Galaga = () => {
     }, bulletSpeed);
 
     return () => clearInterval(interval);
-  }, [mode, isRapidfireActive, spawnExplosion]);
+  }, [mode, isRapidfireActive, isMuted, spawnExplosion]);
 
   // Power-up falling & collection loop
   useEffect(() => {
@@ -342,6 +380,10 @@ export const Galaga = () => {
             item.x <= playerX + PLAYER_PIXEL_SPRITE.width;
 
           if (touchesPlayer) {
+            if (!isMuted) {
+              audio.play('powerup');
+            }
+
             if (item.type === 'shield') {
               setShieldActive(true);
               setActiveMessage('¡ESCUDO ACTIVADO!');
@@ -366,7 +408,7 @@ export const Galaga = () => {
     }, 130);
 
     return () => clearInterval(interval);
-  }, [mode, playerX, playerY, spawnExplosion]);
+  }, [mode, playerX, playerY, isMuted, spawnExplosion]);
 
   // Enemy movement loop
   useEffect(() => {
@@ -408,8 +450,14 @@ export const Galaga = () => {
           if (shieldActive) {
             setShieldActive(false);
             setActiveMessage('¡ESCUDO ABSORBIO EL IMPACTO!');
+            if (!isMuted) {
+              audio.play('shield');
+            }
             spawnExplosion(playerX + 3, playerY, 16, ['cyanBright', 'whiteBright']);
           } else {
+            if (!isMuted) {
+              audio.play('explosion');
+            }
             spawnExplosion(playerX + 3, playerY + 2, 30, ['yellowBright', 'redBright', 'whiteBright', 'cyanBright'], 2.0);
             if (mode === 'demo') {
               return createInitialEnemies();
@@ -424,16 +472,14 @@ export const Galaga = () => {
     }, 350);
 
     return () => clearInterval(interval);
-  }, [mode, enemyDir, playerX, playerY, shieldActive, spawnExplosion]);
+  }, [mode, enemyDir, playerX, playerY, shieldActive, isMuted, spawnExplosion]);
 
-  // -------------------------------------------------------------
-  // VIRTUAL 2D HALF-BLOCK PIXEL BUFFER (CANVAS_H x CANVAS_W)
-  // -------------------------------------------------------------
+  // Virtual 2D Half-block buffer
   const pixelBuffer: (string | null)[][] = Array.from({ length: CANVAS_H }, () =>
     new Array(CANVAS_W).fill(null)
   );
 
-  // 1. Draw Enemies (Half-block square pixels)
+  // 1. Draw Enemies
   for (const enemy of enemies) {
     const sprite = ENEMY_PIXEL_SPRITES[enemy.type];
     for (let r = 0; r < sprite.height; r++) {
@@ -452,14 +498,14 @@ export const Galaga = () => {
     }
   }
 
-  // 2. Draw Bullets (single square pixel each)
+  // 2. Draw Bullets
   for (const b of bullets) {
     if (b.y >= 0 && b.y < CANVAS_H && b.x >= 0 && b.x < CANVAS_W) {
       pixelBuffer[b.y][b.x] = 'yellowBright';
     }
   }
 
-  // 3. Draw Particles (individual colored square pixels)
+  // 3. Draw Particles
   for (const p of particles) {
     const px = Math.round(p.x);
     const py = Math.round(p.y);
@@ -468,7 +514,7 @@ export const Galaga = () => {
     }
   }
 
-  // 4. Draw Player Ship (7x6 Half-block pixel art)
+  // 4. Draw Player Ship
   if (mode !== 'gameover' || particles.length > 0) {
     for (let r = 0; r < PLAYER_PIXEL_SPRITE.height; r++) {
       const py = playerY + r;
@@ -486,7 +532,7 @@ export const Galaga = () => {
     }
   }
 
-  // 5. Draw Shield Barrier if active (energy arc)
+  // 5. Draw Shield Barrier
   if (shieldActive) {
     const shieldY = playerY - 1;
     if (shieldY >= 0) {
@@ -499,7 +545,7 @@ export const Galaga = () => {
     }
   }
 
-  // 6. Draw PowerUps as mini 3x2 capsules
+  // 6. Draw PowerUps
   for (const pu of powerUps) {
     if (pu.y >= 0 && pu.y < CANVAS_H - 1 && pu.x >= 0 && pu.x < CANVAS_W - 2) {
       pixelBuffer[pu.y][pu.x] = pu.color;
@@ -511,7 +557,7 @@ export const Galaga = () => {
     }
   }
 
-  // Compile Virtual Pixel Buffer into 28 Terminal Half-Block Rows
+  // Compile buffer into terminal rows
   const renderHalfBlockRow = (termRow: number) => {
     const topY = termRow * 2;
     const botY = termRow * 2 + 1;
@@ -582,6 +628,8 @@ export const Galaga = () => {
 
   const msRemaining = Math.max(0, Math.ceil((multishotExpiry - Date.now()) / 1000));
   const rfRemaining = Math.max(0, Math.ceil((rapidfireExpiry - Date.now()) / 1000));
+  const audioStatusText = !audio.isAvailable() ? 'NO-BACKEND' : isMuted ? 'MUTE' : 'ON';
+  const audioStatusColor = !audio.isAvailable() ? 'gray' : isMuted ? 'yellow' : 'greenBright';
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -592,7 +640,10 @@ export const Galaga = () => {
             {mode === 'demo' ? '★ MODO DEMO ★' : 'GALAGA CLI'}
           </Text>
         </Box>
-        <Box>
+        <Box gap={2}>
+          <Text color={audioStatusColor}>
+            ♪ [{audioStatusText}]
+          </Text>
           <Text bold color="yellow">
             SCORE: {String(score).padStart(6, '0')}
           </Text>
@@ -612,7 +663,7 @@ export const Galaga = () => {
         </Text>
       </Box>
 
-      {/* Main Game Screen (Half-Blocks 2x Vertical Canvas - 28 lines) */}
+      {/* Main Game Screen */}
       <Box
         flexDirection="column"
         borderStyle="single"
@@ -643,13 +694,13 @@ export const Galaga = () => {
             <Text bold color="magentaBright">
               MODO DEMO AUTÓNOMO — Presioná [N] o [n] para JUGAR
             </Text>
-            <Text color="gray">[Q]: Salir</Text>
+            <Text color="gray">[M]: Mutear/Desmutear Audio | [Q]: Salir</Text>
           </Box>
         )}
 
         {mode === 'playing' && (
           <Text color="gray">
-            ← / →: Mover | Espacio: Disparar | [N]: Reiniciar partida | [Q]: Salir
+            ← / →: Mover | Espacio: Disparar | [M]: Audio | [N]: Reiniciar | [Q]: Salir
           </Text>
         )}
 
