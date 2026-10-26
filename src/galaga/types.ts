@@ -27,8 +27,19 @@ export interface PowerUpItem extends Entity {
   color: string;
 }
 
+export interface Particle {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  life: number;
+  maxLife: number;
+}
+
 export interface PlayerState extends Entity {
   shield: boolean;
-  multishotExpiry: number; // timestamp in ms or 0
-  rapidfireExpiry: number; // timestamp in ms or 0
+  multishotExpiry: number;
+  rapidfireExpiry: number;
 }
