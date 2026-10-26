@@ -19,6 +19,7 @@ class AudioEngine {
   private isMusicLooping: boolean = false;
   private lastPlayTimes: Record<string, number> = {};
   private initialized: boolean = false;
+  private sfxHost: ChildProcess | null = null;
 
   constructor() {
     this.init();
@@ -40,9 +41,14 @@ class AudioEngine {
       this.config.available = false;
     }
 
+    if (this.config.available && process.platform === 'win32') {
+      this.startSfxHost();
+    }
+
     // Clean exit hook to prevent orphaned audio players
     const cleanup = () => {
       this.stopMusic();
+      this.stopSfxHost();
     };
     process.on('exit', cleanup);
     process.on('SIGINT', cleanup);
@@ -64,6 +70,7 @@ class AudioEngine {
       return {
         playerCommand: 'powershell',
         playerArgs: file => [
+          '-NoProfile',
           '-c',
           `(New-Object Media.SoundPlayer '${file.replace(/'/g, "''")}').PlaySync()`
         ],
@@ -95,6 +102,51 @@ class AudioEngine {
       playerArgs: () => [],
       available: false
     };
+  }
+
+  /**
+   * Windows only: spawning powershell per effect takes ~0.5s, longer than the effects
+   * themselves. Keep one persistent host with preloaded players and trigger effects via stdin.
+   */
+  private startSfxHost() {
+    const loaders = Object.entries(this.soundPaths)
+      .filter(([name]) => name !== 'music')
+      .map(([name, file]) => {
+        const escaped = file.replace(/'/g, "''");
+        return `$p['${name}']=New-Object Media.SoundPlayer '${escaped}';$p['${name}'].Load()`;
+      });
+    const script = [
+      '$p=@{}',
+      ...loaders,
+      "while($null -ne ($l=[Console]::In.ReadLine())){if($p.ContainsKey($l)){$p[$l].Play()}}"
+    ].join(';');
+
+    try {
+      const host = spawn(
+        'powershell',
+        ['-NoProfile', '-NoLogo', '-NonInteractive', '-Command', script],
+        { stdio: ['pipe', 'ignore', 'ignore'] }
+      );
+      const drop = () => {
+        if (this.sfxHost === host) this.sfxHost = null;
+      };
+      host.on('error', drop);
+      host.on('exit', drop);
+      host.stdin?.on('error', drop);
+      this.sfxHost = host;
+    } catch {
+      this.sfxHost = null;
+    }
+  }
+
+  private stopSfxHost() {
+    if (!this.sfxHost) return;
+    try {
+      this.sfxHost.kill();
+    } catch {
+      // ignore
+    }
+    this.sfxHost = null;
   }
 
   private commandExists(cmd: string): boolean {
@@ -132,6 +184,11 @@ class AudioEngine {
     const minInterval = sfx === 'laser' ? 50 : 80;
     if (now - last < minInterval) return;
     this.lastPlayTimes[sfx] = now;
+
+    if (this.sfxHost?.stdin?.writable) {
+      this.sfxHost.stdin.write(`${sfx}\n`);
+      return;
+    }
 
     try {
       const child = spawn(
