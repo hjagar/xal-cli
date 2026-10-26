@@ -33,7 +33,6 @@ export interface Particle {
   y: number;
   vx: number;
   vy: number;
-  char: string;
   color: string;
   life: number;
   maxLife: number;
