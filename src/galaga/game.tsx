@@ -4,8 +4,8 @@ import { GameMode, Enemy, Bullet, PowerUpItem, PowerUpType, Particle } from './t
 import { PLAYER_PIXEL_SPRITE, ENEMY_PIXEL_SPRITES } from './sprites.js';
 
 const CANVAS_W = 50;
-const CANVAS_H = 40;
-const TERM_ROWS = CANVAS_H / 2; // 20 terminal lines
+const CANVAS_H = 56; // Expanded vertical height (28 terminal lines)
+const TERM_ROWS = CANVAS_H / 2;
 
 interface Segment {
   text: string;
@@ -19,17 +19,17 @@ const createInitialEnemies = (): Enemy[] => {
 
   // Row 1: 4 Bosses (7x6 pixels each)
   for (let x = 5; x <= 38; x += 11) {
-    enemies.push({ id: id++, x, y: 2, type: 'boss', hp: 2 });
+    enemies.push({ id: id++, x, y: 3, type: 'boss', hp: 2 });
   }
 
   // Row 2: 4 Butterflies (7x5 pixels each)
   for (let x = 5; x <= 38; x += 11) {
-    enemies.push({ id: id++, x, y: 10, type: 'butterfly', hp: 1 });
+    enemies.push({ id: id++, x, y: 11, type: 'butterfly', hp: 1 });
   }
 
   // Row 3: 5 Minions (7x5 pixels each)
   for (let x = 3; x <= 39; x += 9) {
-    enemies.push({ id: id++, x, y: 17, type: 'minion', hp: 1 });
+    enemies.push({ id: id++, x, y: 18, type: 'minion', hp: 1 });
   }
 
   return enemies;
@@ -67,7 +67,7 @@ export const Galaga = () => {
       for (let i = 0; i < count; i++) {
         const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
         const speed = (0.7 + Math.random() * 1.5) * intensity;
-        const life = 7 + Math.floor(Math.random() * 7);
+        const life = 8 + Math.floor(Math.random() * 8);
 
         newParticles.push({
           id: nextParticleId.current++,
@@ -110,7 +110,7 @@ export const Galaga = () => {
       if (prev.length >= maxBullets) return prev;
 
       const newBullets: Bullet[] = [];
-      const midX = currPlayerX + 3; // center of 7-wide ship
+      const midX = currPlayerX + 3;
 
       if (isMultishotActive) {
         newBullets.push(
@@ -187,7 +187,7 @@ export const Galaga = () => {
 
         return nextX;
       });
-    }, 130);
+    }, 120);
 
     return () => clearInterval(demoInterval);
   }, [mode, enemies, playerX, isMultishotActive, isRapidfireActive]);
@@ -214,16 +214,16 @@ export const Galaga = () => {
               p.y < CANVAS_H
           )
       );
-    }, 50);
+    }, 45);
 
     return () => clearInterval(interval);
   }, [particles.length]);
 
-  // Bullets & Collision Loop (sub-pixel resolution)
+  // Bullets & Collision Loop (faster bullet velocity across taller field)
   useEffect(() => {
     if (mode === 'gameover' || mode === 'victory') return;
 
-    const bulletSpeed = isRapidfireActive ? 40 : 55;
+    const bulletSpeed = isRapidfireActive ? 30 : 45;
     const interval = setInterval(() => {
       setBullets(prevBullets => {
         const nextBullets = prevBullets
@@ -256,7 +256,7 @@ export const Galaga = () => {
                 spawnExplosion(
                   enemy.x + 3,
                   enemy.y + 2,
-                  12,
+                  14,
                   enemy.type === 'boss'
                     ? ['yellowBright', 'greenBright', 'whiteBright', 'redBright']
                     : enemy.type === 'butterfly'
@@ -363,7 +363,7 @@ export const Galaga = () => {
 
         return nextItems;
       });
-    }, 140);
+    }, 130);
 
     return () => clearInterval(interval);
   }, [mode, playerX, playerY, spawnExplosion]);
@@ -506,12 +506,12 @@ export const Galaga = () => {
       pixelBuffer[pu.y][pu.x + 1] = pu.color;
       pixelBuffer[pu.y][pu.x + 2] = pu.color;
       pixelBuffer[pu.y + 1][pu.x] = pu.color;
-      pixelBuffer[pu.y + 1][pu.x + 1] = 'whiteBright'; // core
+      pixelBuffer[pu.y + 1][pu.x + 1] = 'whiteBright';
       pixelBuffer[pu.y + 1][pu.x + 2] = pu.color;
     }
   }
 
-  // Compile Virtual Pixel Buffer into 20 Terminal Half-Block Rows
+  // Compile Virtual Pixel Buffer into 28 Terminal Half-Block Rows
   const renderHalfBlockRow = (termRow: number) => {
     const topY = termRow * 2;
     const botY = termRow * 2 + 1;
@@ -589,7 +589,7 @@ export const Galaga = () => {
       <Box width={CANVAS_W + 2} justifyContent="space-between">
         <Box>
           <Text bold color={mode === 'demo' ? 'magentaBright' : 'cyanBright'}>
-            {mode === 'demo' ? '★ MODO DEMO (HALF-BLOCKS 2X) ★' : 'GALAGA CLI 2X'}
+            {mode === 'demo' ? '★ MODO DEMO ★' : 'GALAGA CLI'}
           </Text>
         </Box>
         <Box>
@@ -612,7 +612,7 @@ export const Galaga = () => {
         </Text>
       </Box>
 
-      {/* Main Game Screen (Half-Blocks 2x Vertical Canvas) */}
+      {/* Main Game Screen (Half-Blocks 2x Vertical Canvas - 28 lines) */}
       <Box
         flexDirection="column"
         borderStyle="single"
