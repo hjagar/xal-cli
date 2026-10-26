@@ -1,34 +1,35 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { render, useInput, Text, Box } from 'ink';
 import { GameMode, Enemy, Bullet, PowerUpItem, PowerUpType, Particle } from './types.js';
-import { PLAYER_SPRITE, ENEMY_SPRITES } from './sprites.js';
+import { PLAYER_PIXEL_SPRITE, ENEMY_PIXEL_SPRITES } from './sprites.js';
 
-const FIELD_W = 48;
-const FIELD_H = 24;
+const CANVAS_W = 50;
+const CANVAS_H = 40;
+const TERM_ROWS = CANVAS_H / 2; // 20 terminal lines
 
 interface Segment {
   text: string;
   color?: string;
-  bold?: boolean;
+  backgroundColor?: string;
 }
 
 const createInitialEnemies = (): Enemy[] => {
   const enemies: Enemy[] = [];
   let id = 1;
 
-  // Row 1: 4 Bosses (5x2 each)
-  for (let x = 6; x <= 33; x += 9) {
-    enemies.push({ id: id++, x, y: 1, type: 'boss', hp: 2 });
+  // Row 1: 4 Bosses (7x6 pixels each)
+  for (let x = 5; x <= 38; x += 11) {
+    enemies.push({ id: id++, x, y: 2, type: 'boss', hp: 2 });
   }
 
-  // Row 2: 5 Butterflies (5x2 each)
-  for (let x = 5; x <= 37; x += 8) {
-    enemies.push({ id: id++, x, y: 4, type: 'butterfly', hp: 1 });
+  // Row 2: 4 Butterflies (7x5 pixels each)
+  for (let x = 5; x <= 38; x += 11) {
+    enemies.push({ id: id++, x, y: 10, type: 'butterfly', hp: 1 });
   }
 
-  // Row 3: 5 Minions (5x2 each)
-  for (let x = 5; x <= 37; x += 8) {
-    enemies.push({ id: id++, x, y: 7, type: 'minion', hp: 1 });
+  // Row 3: 5 Minions (7x5 pixels each)
+  for (let x = 3; x <= 39; x += 9) {
+    enemies.push({ id: id++, x, y: 17, type: 'minion', hp: 1 });
   }
 
   return enemies;
@@ -36,8 +37,8 @@ const createInitialEnemies = (): Enemy[] => {
 
 export const Galaga = () => {
   const [mode, setMode] = useState<GameMode>('demo');
-  const [playerX, setPlayerX] = useState<number>(Math.floor((FIELD_W - PLAYER_SPRITE.width) / 2));
-  const playerY = FIELD_H - 3;
+  const [playerX, setPlayerX] = useState<number>(Math.floor((CANVAS_W - PLAYER_PIXEL_SPRITE.width) / 2));
+  const playerY = CANVAS_H - 7;
 
   const [bullets, setBullets] = useState<Bullet[]>([]);
   const [enemies, setEnemies] = useState<Enemy[]>(createInitialEnemies);
@@ -58,24 +59,22 @@ export const Galaga = () => {
   const nextParticleId = useRef(1);
   const isInteractive = Boolean(process.stdin.isTTY);
 
-  // Particle explosion helper
+  // Particle explosion helper in 1:1 half-block pixel space
   const spawnExplosion = useCallback(
     (originX: number, originY: number, count: number, colors: string[], intensity = 1) => {
-      const glyphs = ['*', '•', '·', '+', 'x', '¤', '■'];
       const newParticles: Particle[] = [];
 
       for (let i = 0; i < count; i++) {
-        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
-        const speed = (0.5 + Math.random() * 1.2) * intensity;
-        const life = 5 + Math.floor(Math.random() * 5);
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+        const speed = (0.7 + Math.random() * 1.5) * intensity;
+        const life = 7 + Math.floor(Math.random() * 7);
 
         newParticles.push({
           id: nextParticleId.current++,
           x: originX,
           y: originY,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * (speed * 0.7), // aspect ratio correction for terminals
-          char: glyphs[Math.floor(Math.random() * glyphs.length)],
+          vy: Math.sin(angle) * speed,
           color: colors[Math.floor(Math.random() * colors.length)],
           life,
           maxLife: life
@@ -89,7 +88,7 @@ export const Galaga = () => {
 
   const startNewGame = (newMode: GameMode = 'playing') => {
     setMode(newMode);
-    setPlayerX(Math.floor((FIELD_W - PLAYER_SPRITE.width) / 2));
+    setPlayerX(Math.floor((CANVAS_W - PLAYER_PIXEL_SPRITE.width) / 2));
     setBullets([]);
     setEnemies(createInitialEnemies());
     setEnemyDir(1);
@@ -106,18 +105,18 @@ export const Galaga = () => {
   const isRapidfireActive = rapidfireExpiry > Date.now();
 
   const firePlayerBullets = (currPlayerX: number) => {
-    const maxBullets = isRapidfireActive ? 8 : 4;
+    const maxBullets = isRapidfireActive ? 10 : 5;
     setBullets(prev => {
       if (prev.length >= maxBullets) return prev;
 
       const newBullets: Bullet[] = [];
-      const midX = currPlayerX + 2; // center of 5-wide ship
+      const midX = currPlayerX + 3; // center of 7-wide ship
 
       if (isMultishotActive) {
         newBullets.push(
-          { id: nextBulletId.current++, x: Math.max(1, midX - 2), y: playerY - 1 },
+          { id: nextBulletId.current++, x: Math.max(1, midX - 3), y: playerY - 1 },
           { id: nextBulletId.current++, x: midX, y: playerY - 1 },
-          { id: nextBulletId.current++, x: Math.min(FIELD_W - 2, midX + 2), y: playerY - 1 }
+          { id: nextBulletId.current++, x: Math.min(CANVAS_W - 2, midX + 3), y: playerY - 1 }
         );
       } else {
         newBullets.push({ id: nextBulletId.current++, x: midX, y: playerY - 1 });
@@ -148,10 +147,10 @@ export const Galaga = () => {
       }
 
       if (key.leftArrow) {
-        setPlayerX(x => Math.max(1, x - 1));
+        setPlayerX(x => Math.max(1, x - 2));
       }
       if (key.rightArrow) {
-        setPlayerX(x => Math.min(FIELD_W - PLAYER_SPRITE.width - 1, x + 1));
+        setPlayerX(x => Math.min(CANVAS_W - PLAYER_PIXEL_SPRITE.width - 1, x + 2));
       }
       if (input === ' ') {
         firePlayerBullets(playerX);
@@ -171,24 +170,24 @@ export const Galaga = () => {
       }
 
       const targetEnemy = enemies.reduce((lowest, curr) => (curr.y > lowest.y ? curr : lowest), enemies[0]);
-      const targetCenter = targetEnemy ? targetEnemy.x + 2 : Math.floor(FIELD_W / 2);
-      const playerCenter = playerX + 2;
+      const targetCenter = targetEnemy ? targetEnemy.x + 3 : Math.floor(CANVAS_W / 2);
+      const playerCenter = playerX + 3;
 
       setPlayerX(currX => {
         let nextX = currX;
         if (targetCenter > playerCenter + 1) {
-          nextX = Math.min(FIELD_W - PLAYER_SPRITE.width - 1, currX + 1);
+          nextX = Math.min(CANVAS_W - PLAYER_PIXEL_SPRITE.width - 1, currX + 2);
         } else if (targetCenter < playerCenter - 1) {
-          nextX = Math.max(1, currX - 1);
+          nextX = Math.max(1, currX - 2);
         }
 
-        if (Math.abs(targetCenter - (nextX + 2)) <= 2 || Math.random() < 0.25) {
+        if (Math.abs(targetCenter - (nextX + 3)) <= 3 || Math.random() < 0.25) {
           firePlayerBullets(nextX);
         }
 
         return nextX;
       });
-    }, 140);
+    }, 130);
 
     return () => clearInterval(demoInterval);
   }, [mode, enemies, playerX, isMultishotActive, isRapidfireActive]);
@@ -210,21 +209,21 @@ export const Galaga = () => {
             p =>
               p.life > 0 &&
               p.x >= 0 &&
-              p.x < FIELD_W &&
+              p.x < CANVAS_W &&
               p.y >= 0 &&
-              p.y < FIELD_H
+              p.y < CANVAS_H
           )
       );
-    }, 60);
+    }, 50);
 
     return () => clearInterval(interval);
   }, [particles.length]);
 
-  // Bullets & Collision Loop
+  // Bullets & Collision Loop (sub-pixel resolution)
   useEffect(() => {
     if (mode === 'gameover' || mode === 'victory') return;
 
-    const bulletSpeed = isRapidfireActive ? 60 : 80;
+    const bulletSpeed = isRapidfireActive ? 40 : 55;
     const interval = setInterval(() => {
       setBullets(prevBullets => {
         const nextBullets = prevBullets
@@ -237,7 +236,7 @@ export const Galaga = () => {
           let addedScore = 0;
 
           for (const enemy of prevEnemies) {
-            const sprite = ENEMY_SPRITES[enemy.type];
+            const sprite = ENEMY_PIXEL_SPRITES[enemy.type];
             const hitIndex = nextBullets.findIndex(
               b =>
                 b.x >= enemy.x &&
@@ -254,11 +253,10 @@ export const Galaga = () => {
                 const pts = enemy.type === 'boss' ? 200 : enemy.type === 'butterfly' ? 100 : 50;
                 addedScore += pts;
 
-                // Spawn explosion particles for destroyed enemy
                 spawnExplosion(
-                  enemy.x + 2,
-                  enemy.y + 1,
-                  8,
+                  enemy.x + 3,
+                  enemy.y + 2,
+                  12,
                   enemy.type === 'boss'
                     ? ['yellowBright', 'greenBright', 'whiteBright', 'redBright']
                     : enemy.type === 'butterfly'
@@ -284,16 +282,15 @@ export const Galaga = () => {
 
                   droppedPowerUps.push({
                     id: nextPowerUpId.current++,
-                    x: Math.min(FIELD_W - 3, Math.max(1, enemy.x + 1)),
-                    y: enemy.y + 1,
+                    x: Math.min(CANVAS_W - 4, Math.max(1, enemy.x + 2)),
+                    y: enemy.y + 2,
                     type: pType,
                     symbol,
                     color
                   });
                 }
               } else {
-                // Small hit spark
-                spawnExplosion(hitBullet.x, hitBullet.y, 3, ['whiteBright', 'yellowBright'], 0.5);
+                spawnExplosion(hitBullet.x, hitBullet.y, 4, ['whiteBright', 'yellowBright'], 0.7);
                 survivingEnemies.push({ ...enemy, hp: remainingHp });
               }
             } else {
@@ -340,33 +337,33 @@ export const Galaga = () => {
 
           const touchesPlayer =
             nextY >= playerY - 1 &&
-            nextY <= playerY + PLAYER_SPRITE.height &&
-            item.x + 2 >= playerX &&
-            item.x <= playerX + PLAYER_SPRITE.width;
+            nextY <= playerY + PLAYER_PIXEL_SPRITE.height &&
+            item.x + 3 >= playerX &&
+            item.x <= playerX + PLAYER_PIXEL_SPRITE.width;
 
           if (touchesPlayer) {
             if (item.type === 'shield') {
               setShieldActive(true);
               setActiveMessage('¡ESCUDO ACTIVADO!');
-              spawnExplosion(playerX + 2, playerY, 10, ['blueBright', 'cyanBright']);
+              spawnExplosion(playerX + 3, playerY + 2, 12, ['blueBright', 'cyanBright']);
             } else if (item.type === 'multishot') {
               setMultishotExpiry(Date.now() + 10000);
               setActiveMessage('¡DISPARO MULTIPLE (10s)!');
-              spawnExplosion(playerX + 2, playerY, 10, ['greenBright', 'whiteBright']);
+              spawnExplosion(playerX + 3, playerY + 2, 12, ['greenBright', 'whiteBright']);
             } else if (item.type === 'rapidfire') {
               setRapidfireExpiry(Date.now() + 8000);
               setActiveMessage('¡FUEGO RAPIDO (8s)!');
-              spawnExplosion(playerX + 2, playerY, 10, ['yellowBright', 'whiteBright']);
+              spawnExplosion(playerX + 3, playerY + 2, 12, ['yellowBright', 'whiteBright']);
             }
             setScore(s => s + 50);
-          } else if (nextY < FIELD_H) {
+          } else if (nextY < CANVAS_H) {
             nextItems.push({ ...item, y: nextY });
           }
         }
 
         return nextItems;
       });
-    }, 200);
+    }, 140);
 
     return () => clearInterval(interval);
   }, [mode, playerX, playerY, spawnExplosion]);
@@ -383,9 +380,9 @@ export const Galaga = () => {
         let shouldDrop = false;
 
         const minX = Math.min(...prevEnemies.map(e => e.x));
-        const maxX = Math.max(...prevEnemies.map(e => e.x + ENEMY_SPRITES[e.type].width));
+        const maxX = Math.max(...prevEnemies.map(e => e.x + ENEMY_PIXEL_SPRITES[e.type].width));
 
-        if (enemyDir > 0 && maxX >= FIELD_W - 2) {
+        if (enemyDir > 0 && maxX >= CANVAS_W - 2) {
           nextDir = -1;
           shouldDrop = true;
         } else if (enemyDir < 0 && minX <= 1) {
@@ -400,21 +397,20 @@ export const Galaga = () => {
         const updated = prevEnemies.map(e => ({
           ...e,
           x: shouldDrop ? e.x : e.x + nextDir,
-          y: shouldDrop ? e.y + 1 : e.y
+          y: shouldDrop ? e.y + 2 : e.y
         }));
 
         const breached = updated.some(
-          e => e.y + ENEMY_SPRITES[e.type].height >= playerY
+          e => e.y + ENEMY_PIXEL_SPRITES[e.type].height >= playerY
         );
 
         if (breached) {
           if (shieldActive) {
             setShieldActive(false);
             setActiveMessage('¡ESCUDO ABSORBIO EL IMPACTO!');
-            spawnExplosion(playerX + 2, playerY - 1, 14, ['cyanBright', 'whiteBright']);
+            spawnExplosion(playerX + 3, playerY, 16, ['cyanBright', 'whiteBright']);
           } else {
-            // Massive player explosion!
-            spawnExplosion(playerX + 2, playerY, 24, ['yellowBright', 'redBright', 'whiteBright', 'cyanBright'], 1.8);
+            spawnExplosion(playerX + 3, playerY + 2, 30, ['yellowBright', 'redBright', 'whiteBright', 'cyanBright'], 2.0);
             if (mode === 'demo') {
               return createInitialEnemies();
             } else {
@@ -425,36 +421,30 @@ export const Galaga = () => {
 
         return updated;
       });
-    }, 400);
+    }, 350);
 
     return () => clearInterval(interval);
   }, [mode, enemyDir, playerX, playerY, shieldActive, spawnExplosion]);
 
-  // Grid buffer construction
-  interface Cell {
-    char: string;
-    color?: string;
-    bold?: boolean;
-  }
-
-  const grid: Cell[][] = Array.from({ length: FIELD_H }, () =>
-    Array.from({ length: FIELD_W }, () => ({ char: ' ' }))
+  // -------------------------------------------------------------
+  // VIRTUAL 2D HALF-BLOCK PIXEL BUFFER (CANVAS_H x CANVAS_W)
+  // -------------------------------------------------------------
+  const pixelBuffer: (string | null)[][] = Array.from({ length: CANVAS_H }, () =>
+    new Array(CANVAS_W).fill(null)
   );
 
-  // 1. Draw Enemies (Multi-color Pixel Art)
+  // 1. Draw Enemies (Half-block square pixels)
   for (const enemy of enemies) {
-    const sprite = ENEMY_SPRITES[enemy.type];
+    const sprite = ENEMY_PIXEL_SPRITES[enemy.type];
     for (let r = 0; r < sprite.height; r++) {
-      const line = sprite.lines[r];
-      const gy = enemy.y + r;
-      if (gy >= 0 && gy < FIELD_H) {
+      const py = enemy.y + r;
+      if (py >= 0 && py < CANVAS_H) {
         for (let c = 0; c < sprite.width; c++) {
-          const gx = enemy.x + c;
-          if (gx >= 0 && gx < FIELD_W) {
-            const ch = line[c];
-            if (ch !== ' ') {
-              const color = sprite.colors ? sprite.colors[r][c] : sprite.color;
-              grid[gy][gx] = { char: ch, color, bold: true };
+          const px = enemy.x + c;
+          if (px >= 0 && px < CANVAS_W) {
+            const color = sprite.pixels[r][c];
+            if (color !== null) {
+              pixelBuffer[py][px] = color;
             }
           }
         }
@@ -462,47 +452,33 @@ export const Galaga = () => {
     }
   }
 
-  // 2. Draw PowerUps
-  for (const pu of powerUps) {
-    if (pu.y >= 0 && pu.y < FIELD_H) {
-      for (let i = 0; i < pu.symbol.length; i++) {
-        const gx = pu.x + i;
-        if (gx >= 0 && gx < FIELD_W) {
-          grid[pu.y][gx] = { char: pu.symbol[i], color: pu.color, bold: true };
-        }
-      }
-    }
-  }
-
-  // 3. Draw Bullets
+  // 2. Draw Bullets (single square pixel each)
   for (const b of bullets) {
-    if (b.y >= 0 && b.y < FIELD_H && b.x >= 0 && b.x < FIELD_W) {
-      grid[b.y][b.x] = { char: '│', color: 'yellowBright', bold: true };
+    if (b.y >= 0 && b.y < CANVAS_H && b.x >= 0 && b.x < CANVAS_W) {
+      pixelBuffer[b.y][b.x] = 'yellowBright';
     }
   }
 
-  // 4. Draw Particles (Explosions & Sparks)
+  // 3. Draw Particles (individual colored square pixels)
   for (const p of particles) {
     const px = Math.round(p.x);
     const py = Math.round(p.y);
-    if (py >= 0 && py < FIELD_H && px >= 0 && px < FIELD_W) {
-      grid[py][px] = { char: p.char, color: p.color, bold: true };
+    if (py >= 0 && py < CANVAS_H && px >= 0 && px < CANVAS_W) {
+      pixelBuffer[py][px] = p.color;
     }
   }
 
-  // 5. Draw Player Ship (Multi-color Pixel Art v2)
+  // 4. Draw Player Ship (7x6 Half-block pixel art)
   if (mode !== 'gameover' || particles.length > 0) {
-    for (let r = 0; r < PLAYER_SPRITE.height; r++) {
-      const line = PLAYER_SPRITE.lines[r];
-      const gy = playerY + r;
-      if (gy >= 0 && gy < FIELD_H) {
-        for (let c = 0; c < PLAYER_SPRITE.width; c++) {
-          const gx = playerX + c;
-          if (gx >= 0 && gx < FIELD_W) {
-            const ch = line[c];
-            if (ch !== ' ') {
-              const color = PLAYER_SPRITE.colors ? PLAYER_SPRITE.colors[r][c] : PLAYER_SPRITE.color;
-              grid[gy][gx] = { char: ch, color, bold: true };
+    for (let r = 0; r < PLAYER_PIXEL_SPRITE.height; r++) {
+      const py = playerY + r;
+      if (py >= 0 && py < CANVAS_H) {
+        for (let c = 0; c < PLAYER_PIXEL_SPRITE.width; c++) {
+          const px = playerX + c;
+          if (px >= 0 && px < CANVAS_W) {
+            const color = PLAYER_PIXEL_SPRITE.pixels[r][c];
+            if (color !== null) {
+              pixelBuffer[py][px] = color;
             }
           }
         }
@@ -510,46 +486,93 @@ export const Galaga = () => {
     }
   }
 
-  // 6. Draw Shield Barrier if active
+  // 5. Draw Shield Barrier if active (energy arc)
   if (shieldActive) {
     const shieldY = playerY - 1;
     if (shieldY >= 0) {
-      for (let c = -1; c <= PLAYER_SPRITE.width; c++) {
-        const gx = playerX + c;
-        if (gx >= 0 && gx < FIELD_W) {
-          grid[shieldY][gx] = { char: '═', color: 'cyanBright', bold: true };
+      for (let c = -1; c <= PLAYER_PIXEL_SPRITE.width; c++) {
+        const px = playerX + c;
+        if (px >= 0 && px < CANVAS_W) {
+          pixelBuffer[shieldY][px] = 'cyanBright';
         }
       }
     }
   }
 
-  // Convert grid to row segments
-  const renderRow = (rowCells: Cell[], rowIndex: number) => {
-    const segments: Segment[] = [];
-    let currentText = '';
-    let currentColor: string | undefined = undefined;
-    let currentBold: boolean | undefined = undefined;
+  // 6. Draw PowerUps as mini 3x2 capsules
+  for (const pu of powerUps) {
+    if (pu.y >= 0 && pu.y < CANVAS_H - 1 && pu.x >= 0 && pu.x < CANVAS_W - 2) {
+      pixelBuffer[pu.y][pu.x] = pu.color;
+      pixelBuffer[pu.y][pu.x + 1] = pu.color;
+      pixelBuffer[pu.y][pu.x + 2] = pu.color;
+      pixelBuffer[pu.y + 1][pu.x] = pu.color;
+      pixelBuffer[pu.y + 1][pu.x + 1] = 'whiteBright'; // core
+      pixelBuffer[pu.y + 1][pu.x + 2] = pu.color;
+    }
+  }
 
-    for (const cell of rowCells) {
-      if (cell.color === currentColor && cell.bold === currentBold) {
-        currentText += cell.char;
-      } else {
-        if (currentText.length > 0) {
-          segments.push({ text: currentText, color: currentColor, bold: currentBold });
+  // Compile Virtual Pixel Buffer into 20 Terminal Half-Block Rows
+  const renderHalfBlockRow = (termRow: number) => {
+    const topY = termRow * 2;
+    const botY = termRow * 2 + 1;
+    const segments: Segment[] = [];
+
+    let currText = '';
+    let currColor: string | undefined = undefined;
+    let currBg: string | undefined = undefined;
+
+    for (let x = 0; x < CANVAS_W; x++) {
+      const top = pixelBuffer[topY] ? pixelBuffer[topY][x] : null;
+      const bot = pixelBuffer[botY] ? pixelBuffer[botY][x] : null;
+
+      let ch = ' ';
+      let fg: string | undefined = undefined;
+      let bg: string | undefined = undefined;
+
+      if (top !== null && bot !== null) {
+        if (top === bot) {
+          ch = '█';
+          fg = top;
+          bg = undefined;
+        } else {
+          ch = '▀';
+          fg = top;
+          bg = bot;
         }
-        currentText = cell.char;
-        currentColor = cell.color;
-        currentBold = cell.bold;
+      } else if (top !== null && bot === null) {
+        ch = '▀';
+        fg = top;
+        bg = undefined;
+      } else if (top === null && bot !== null) {
+        ch = '▄';
+        fg = bot;
+        bg = undefined;
+      } else {
+        ch = ' ';
+        fg = undefined;
+        bg = undefined;
+      }
+
+      if (fg === currColor && bg === currBg) {
+        currText += ch;
+      } else {
+        if (currText.length > 0) {
+          segments.push({ text: currText, color: currColor, backgroundColor: currBg });
+        }
+        currText = ch;
+        currColor = fg;
+        currBg = bg;
       }
     }
-    if (currentText.length > 0) {
-      segments.push({ text: currentText, color: currentColor, bold: currentBold });
+
+    if (currText.length > 0) {
+      segments.push({ text: currText, color: currColor, backgroundColor: currBg });
     }
 
     return (
-      <Box key={rowIndex}>
+      <Box key={termRow}>
         {segments.map((seg, sIdx) => (
-          <Text key={sIdx} color={seg.color} bold={seg.bold}>
+          <Text key={sIdx} color={seg.color} backgroundColor={seg.backgroundColor}>
             {seg.text}
           </Text>
         ))}
@@ -563,10 +586,10 @@ export const Galaga = () => {
   return (
     <Box flexDirection="column" padding={1}>
       {/* Header HUD */}
-      <Box width={FIELD_W + 2} justifyContent="space-between">
+      <Box width={CANVAS_W + 2} justifyContent="space-between">
         <Box>
           <Text bold color={mode === 'demo' ? 'magentaBright' : 'cyanBright'}>
-            {mode === 'demo' ? '★ MODO DEMO ★' : 'GALAGA CLI'}
+            {mode === 'demo' ? '★ MODO DEMO (HALF-BLOCKS 2X) ★' : 'GALAGA CLI 2X'}
           </Text>
         </Box>
         <Box>
@@ -577,7 +600,7 @@ export const Galaga = () => {
       </Box>
 
       {/* Power-up indicators */}
-      <Box width={FIELD_W + 2} justifyContent="flex-start" gap={2}>
+      <Box width={CANVAS_W + 2} justifyContent="flex-start" gap={2}>
         <Text color={shieldActive ? 'blueBright' : 'gray'}>
           [S] ESCUDO: {shieldActive ? 'ACTIVO' : 'OFF'}
         </Text>
@@ -589,7 +612,7 @@ export const Galaga = () => {
         </Text>
       </Box>
 
-      {/* Main Game Screen */}
+      {/* Main Game Screen (Half-Blocks 2x Vertical Canvas) */}
       <Box
         flexDirection="column"
         borderStyle="single"
@@ -602,13 +625,13 @@ export const Galaga = () => {
             ? 'magenta'
             : 'blue'
         }
-        width={FIELD_W + 2}
+        width={CANVAS_W + 2}
       >
-        {grid.map((rowCells, rIdx) => renderRow(rowCells, rIdx))}
+        {Array.from({ length: TERM_ROWS }).map((_, rIdx) => renderHalfBlockRow(rIdx))}
       </Box>
 
       {/* Bottom Controls / Notifications */}
-      <Box marginTop={1} flexDirection="column" width={FIELD_W + 2}>
+      <Box marginTop={1} flexDirection="column" width={CANVAS_W + 2}>
         {activeMessage !== '' && (
           <Text bold color="cyan">
             {activeMessage}
